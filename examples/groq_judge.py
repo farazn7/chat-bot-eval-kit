@@ -24,10 +24,6 @@ class GroqJudge:
         self.usage = {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}
 
     def __call__(self, payload):
-        if self.stopped:
-            raise RuntimeError('Provider run stopped after an earlier failure')
-        if self.last_call is not None:
-            time.sleep(max(0, self.min_interval - (time.monotonic() - self.last_call)))
         schema = {'type': 'object', 'additionalProperties': False,
                   'properties': {'label': {'type': 'string', 'enum': ['pass', 'partial', 'fail']},
                                  'reason': {'type': 'string'},
@@ -39,6 +35,13 @@ class GroqJudge:
                              {'role': 'user', 'content': json.dumps({k: v for k, v in payload.items() if k != 'rubric'})}],
                 'response_format': {'type': 'json_schema', 'json_schema': {
                     'name': 'answer_grade', 'strict': True, 'schema': schema}}}
+        return self.complete(body)
+
+    def complete(self, body, timeout=45):
+        if self.stopped:
+            raise RuntimeError('Provider run stopped after an earlier failure')
+        if self.last_call is not None:
+            time.sleep(max(0, self.min_interval - (time.monotonic() - self.last_call)))
         request = Request('https://api.groq.com/openai/v1/chat/completions',
                           data=json.dumps(body).encode(), method='POST',
                           headers={'Authorization': 'Bearer ' + self.key, 'Content-Type': 'application/json',
@@ -46,7 +49,7 @@ class GroqJudge:
         self.last_call = time.monotonic()
         self.calls += 1
         try:
-            with urlopen(request, timeout=45) as response:
+            with urlopen(request, timeout=timeout) as response:
                 value = json.loads(response.read())
             for key in self.usage:
                 self.usage[key] += value.get('usage', {}).get(key, 0)
@@ -67,3 +70,31 @@ def grade(payload):
     if _judge is None:
         _judge = GroqJudge()
     return _judge(payload)
+
+
+class GroqAnswer(GroqJudge):
+    """Same transport, different schema; no provider-side conversation memory."""
+    def __call__(self, payload):
+        self.min_interval = payload['generation']['minimum_request_interval_seconds']
+        settings = payload['generation']
+        schema = {'type': 'object', 'additionalProperties': False,
+                  'properties': {'answer': {'type': 'string'},
+                                 'citations': {'type': 'array', 'items': {'type': 'string'}}},
+                  'required': ['answer', 'citations']}
+        body = {k: settings[k] for k in ('model', 'temperature', 'reasoning_effort', 'max_completion_tokens')}
+        body.update(messages=[{'role': 'system', 'content': payload['system']},
+                              {'role': 'user', 'content': json.dumps({k: payload[k] for k in ('question', 'history', 'documents')})}],
+                    response_format={'type': 'json_schema', 'json_schema': {
+                        'name': 'portfolio_answer', 'strict': True, 'schema': schema}})
+        return self.complete(body, timeout=settings['timeout_seconds'])
+
+
+_answer_transport = None
+
+
+def answer_factory():
+    # Share only HTTP pacing/credentials across fresh sessions, never model history.
+    global _answer_transport
+    if _answer_transport is None:
+        _answer_transport = GroqAnswer()
+    return lambda payload: _answer_transport(payload)

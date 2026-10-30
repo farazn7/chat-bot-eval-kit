@@ -8,12 +8,23 @@ from .demo import respond
 from .runner import run
 from .evaluation import evaluate, compare
 from .judging import judge, review_template, calibrate
+from .experiment import load_experiment, plan_experiment, run_experiment
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Capture chatbot behavior and measure evidence coverage.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("validate", help="Validate bundled dataset and frozen hashes")
+    experiment = sub.add_parser('experiment', help='Plan a frozen multi-turn run; execution is explicit')
+    experiment.add_argument('directory', type=Path)
+    experiment.add_argument('--variants', nargs='+', default=['minimal', 'restrictive'])
+    experiment.add_argument('--split', choices=['development', 'heldout'], default='development')
+    experiment.add_argument('--include-heldout', action='store_true')
+    experiment.add_argument('--max-calls', type=int, default=200)
+    experiment.add_argument('--execute', action='store_true', help='Permit calls through the trusted provider factory')
+    experiment.add_argument('--function', help='Trusted module:factory returning a stateless provider callable')
+    experiment.add_argument('--provider-id')
+    experiment.add_argument('--output', type=Path)
     scoring = sub.add_parser('evaluate', help='Measure saved responses offline; not answer correctness')
     scoring.add_argument('capture', type=Path)
     scoring.add_argument('--documents', type=Path, required=True)
@@ -48,6 +59,39 @@ def main(argv=None):
     capture.add_argument("--output", type=Path, default=Path("reports/capture.json"))
     args = parser.parse_args(argv)
     try:
+        if args.command == 'experiment':
+            design = load_experiment(args.directory)
+            options = dict(variants=args.variants, split=args.split, include_heldout=args.include_heldout,
+                           max_calls=args.max_calls)
+            plan = plan_experiment(design, **options)
+            print(json.dumps(plan, indent=2))
+            if not args.execute:
+                print('Plan only: no provider imported, no calls made, no output written.')
+                return 0
+            if not args.function or ':' not in args.function or not args.provider_id or not args.output:
+                parser.error('Execution requires --function module:factory, --provider-id and a new --output path')
+            if args.output.exists():
+                parser.error('Output already exists; choose a new run file')
+            temporary = args.output.with_name(args.output.name + '.tmp')
+            if temporary.exists():
+                parser.error('Temporary output already exists; inspect the interrupted run first')
+            module, name = args.function.split(':', 1)
+            factory = getattr(importlib.import_module(module), name)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open('x', encoding='utf-8') as handle:
+                handle.write('{"status": "initializing"}\n')
+            last_count = -1
+            def checkpoint(report):
+                nonlocal last_count
+                temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
+                temporary.replace(args.output)
+                count = report['calls_attempted']
+                if count != last_count and (count % 5 == 0 or report['status'] != 'running'):
+                    print(f"{count}/{plan['planned_calls']} calls; {report['status']}; {report['counts']}", flush=True)
+                    last_count = count
+            report = run_experiment(design, factory, provider_id=args.provider_id, checkpoint=checkpoint, **options)
+            print(f"Saved {args.output}; semantic quality and attack success require review.")
+            return int(report['status'] != 'complete')
         if args.command in {'evaluate', 'compare', 'judge', 'review-template', 'calibrate'}:
             if args.command == 'compare':
                 paths = [args.before, args.after]

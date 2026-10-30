@@ -71,6 +71,7 @@ chatbot-eval-kit/
 |       |-- runner.py          # runs cases and collects responses
 |       |-- evaluation.py      # offline evidence metrics and paired comparison
 |       |-- judging.py         # rubric grading and reference-label calibration
+|       |-- experiment.py      # frozen-design, real multi-turn capture and session isolation
 |       |-- cli.py             # terminal commands
 |       |-- demo.py            # offline example chatbot
 |       `-- data/
@@ -80,7 +81,8 @@ chatbot-eval-kit/
 `-- tests/
     |-- test_foundations.py    # capture and adapter tests
     |-- test_evaluation.py     # evidence metrics and comparison tests
-    `-- test_judging.py        # judge contracts and calibration tests
+    |-- test_judging.py        # judge contracts and provider tests
+    `-- test_experiment.py     # conversations, budgets, isolation and interruption tests
 ```
 
 `pyproject.toml` lists dependencies, like `requirements.txt`, and also defines package installation, the `chatbot-eval` command and pytest settings. This project uses it as the single configuration file; a separate requirements file is not needed. There are no runtime dependencies; pytest is a development dependency.
@@ -137,4 +139,29 @@ chatbot-eval calibrate reports/demo-judgments.json reports/demo-reference.json -
 
 Calibration reports agreement, a confusion matrix, individual disagreements and false passes (judge says pass where reference says partial/fail). It binds labels to the exact capture, source documents and rubric, rejects incomplete labels and reports judge failures separately. Agreement uses successfully judged pairs; inspect its denominator and error count. Reference provenance is recorded, but reviewer independence cannot be verified automatically. Do not call assistant-generated labels independent human ground truth.
 
-The workflow has 51 passing tests and one completed 40-case Groq run. Groq agreed with the prior assistant review on 37 cases; this is not independent human calibration. See [the results and disagreements](EVALUATION.md). Keep development and held-out reviews separate, record judge configuration changes, and inspect disagreements before trusting model grades.
+The toolkit has 72 passing tests and one completed 40-case demo judge run. Groq agreed with the prior assistant review on 37 cases; this is not independent human calibration. See [the results and disagreements](EVALUATION.md). Keep development and held-out reviews separate, record judge configuration changes, and inspect disagreements before trusting model grades.
+
+## Multi-turn experiments
+
+The `experiment` command runs fixed conversations against variants defined in a local frozen design. Every follow-up receives actual previous replies. Each scenario, variant and repeat starts a fresh session; forged-history fixtures are explicitly labeled. Evaluator expectations and attack objectives are never sent to the answer model.
+
+A design folder contains `specification.json`, `evidence.json`, `scenarios.jsonl` and `design-manifest.json`. The manifest records the version and SHA-256 hashes of the other three files. The specification defines prompts, generation settings, repeats and limits. Scenarios contain an ID, family, split, kind, evidence IDs and user turns with expected behavior; optional fields describe injected history/evidence and synthetic-canary fixtures. The personal portfolio design is local and ignored, not part of this package.
+
+First plan a run without loading credentials or importing a provider:
+
+```powershell
+chatbot-eval experiment path/to/design --variants minimal restrictive --max-calls 200
+```
+
+To execute an explicitly budgeted run using the bundled Groq example, from the repository root:
+
+```powershell
+$env:PYTHONPATH = 'examples'
+chatbot-eval experiment path/to/design --variants minimal restrictive --max-calls 200 --execute --function groq_judge:answer_factory --provider-id groq-gpt-oss-20b-design-settings --output reports/new-experiment-run.json
+```
+
+The factory returns a fresh stateless callable accepting `system`, `question`, `history`, `documents`, `generation` and `answer_schema`, and returning exactly `answer` and `citations`. Groq uses the frozen model settings; only HTTP pacing and credentials are shared across sessions. Custom providers must honor supplied settings and implement their own timeouts with no hidden retries. The call limit counts callable invocations, not arbitrary behavior inside custom code.
+
+Execution requires a new output file and checkpoints every turn. Provider failure stops further calls; incomplete sessions remain visible. If interrupted, an `in_flight` call may have incurred usage even though its answer was not captured. There is no automatic resume or retry: preserve that report and account for it before starting a separately named run. Histories exceeding limits stop rather than silently truncate. Held-out runs require `--split heldout --include-heldout`.
+
+Unknown citations, injected-source citations and empty answers are recorded, not repaired or counted as quality passes. Synthetic-canary checks detect literal, base64 and hex forms, including concatenated replies; absence of a match does not prove non-disclosure. Semantic correctness, helpfulness and attack success still require separate review. This runner does not yet implement the planned balanced code guards, renderer protections, load testing or adaptive red teaming. Its experiment reports are not inputs to the single-turn `evaluate`/`judge` commands without an explicit conversion and matching evaluation protocol.

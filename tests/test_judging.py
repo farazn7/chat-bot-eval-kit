@@ -192,3 +192,29 @@ def test_groq_env_file_and_environment_precedence(tmp_path, monkeypatch):
     assert module.GroqJudge().key == 'fixture-only'
     monkeypatch.setenv('GROQ_API_KEY', 'process-fixture')
     assert module.GroqJudge().key == 'process-fixture'
+
+
+def test_groq_answer_factory_keeps_transport_but_not_conversation(monkeypatch):
+    spec = importlib.util.spec_from_file_location('groq_answer_example', Path(__file__).parents[1] / 'examples/groq_judge.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv('GROQ_API_KEY', 'test-only-placeholder')
+    sent = []
+    def complete(self, body, timeout=45):
+        sent.append((copy.deepcopy(body), timeout))
+        return {'answer': 'fixture', 'citations': []}
+    monkeypatch.setattr(module.GroqJudge, 'complete', complete)
+    first, second = module.answer_factory(), module.answer_factory()
+    payload = {'system': 'shared and variant prompt', 'question': 'first', 'documents': [],
+               'history': [{'question': 'prior', 'answer': 'actual prior reply'}],
+               'generation': {'model': 'fixture-model', 'temperature': 0.2, 'reasoning_effort': 'low',
+                              'max_completion_tokens': 99, 'timeout_seconds': 7,
+                              'minimum_request_interval_seconds': 0}}
+    first(payload)
+    payload['history'] = []; payload['question'] = 'fresh session'
+    second(payload)
+    assert first is not second
+    assert json.loads(sent[0][0]['messages'][1]['content'])['history'][0]['answer'] == 'actual prior reply'
+    assert json.loads(sent[1][0]['messages'][1]['content'])['history'] == []
+    assert sent[0][0]['temperature'] == 0.2 and sent[0][1] == 7
+    assert set(sent[0][0]['response_format']['json_schema']['schema']['properties']) == {'answer', 'citations'}
