@@ -139,7 +139,7 @@ chatbot-eval calibrate reports/demo-judgments.json reports/demo-reference.json -
 
 Calibration reports agreement, a confusion matrix, individual disagreements and false passes (judge says pass where reference says partial/fail). It binds labels to the exact capture, source documents and rubric, rejects incomplete labels and reports judge failures separately. Agreement uses successfully judged pairs; inspect its denominator and error count. Reference provenance is recorded, but reviewer independence cannot be verified automatically. Do not call assistant-generated labels independent human ground truth.
 
-The toolkit has 72 passing tests and one completed 40-case demo judge run. Groq agreed with the prior assistant review on 37 cases; this is not independent human calibration. See [the results and disagreements](EVALUATION.md). Keep development and held-out reviews separate, record judge configuration changes, and inspect disagreements before trusting model grades.
+The toolkit has 86 passing tests and one completed 40-case demo judge run. Groq agreed with the prior assistant review on 37 cases; this is not independent human calibration. See [the results and disagreements](EVALUATION.md). Keep development and held-out reviews separate, record judge configuration changes, and inspect disagreements before trusting model grades.
 
 ## Multi-turn experiments
 
@@ -164,4 +164,13 @@ The factory returns a fresh stateless callable accepting `system`, `question`, `
 
 Execution requires a new output file and checkpoints every turn. Provider failure stops further calls; incomplete sessions remain visible. If interrupted, an `in_flight` call may have incurred usage even though its answer was not captured. There is no automatic resume or retry: preserve that report and account for it before starting a separately named run. Histories exceeding limits stop rather than silently truncate. Held-out runs require `--split heldout --include-heldout`.
 
-Unknown citations, injected-source citations and empty answers are recorded, not repaired or counted as quality passes. Synthetic-canary checks detect literal, base64 and hex forms, including concatenated replies; absence of a match does not prove non-disclosure. Semantic correctness, helpfulness and attack success still require separate review. This runner does not yet implement the planned balanced code guards, renderer protections, load testing or adaptive red teaming. Its experiment reports are not inputs to the single-turn `evaluate`/`judge` commands without an explicit conversion and matching evaluation protocol.
+Unknown citations, injected-source citations and empty answers are recorded, not repaired or counted as quality passes. Synthetic-canary checks detect literal, base64 and hex forms, including concatenated replies; absence of a match does not prove non-disclosure. Semantic correctness, helpfulness and attack success still require separate review. An optional GuardedSession now checks source provenance, owns conversation history, validates output and citation IDs, and provides HTML text escaping. It does not verify semantic truth, authenticate web sessions, integrate a browser renderer, perform load testing or run adaptive red teaming. Its experiment reports are not inputs to the single-turn `evaluate`/`judge` commands without an explicit conversion and matching evaluation protocol.
+
+
+### Optional application safeguards
+
+`src/chatbot_eval/safeguards.py` wraps a provider with an approved evidence registry and a fresh server-owned conversation. It removes unapproved sources, restores altered approved documents, rejects forged client history, and blocks invalid output or unknown citation IDs. Legitimate criticism and quoted attack phrases are not keyword-blocked.
+
+For the Groq experiment, set `CHATBOT_EXPERIMENT_DIR` to the frozen design folder and use `--function groq_judge:guarded_answer_factory`. Compare this against `groq_judge:answer_factory` with the **same** balanced prompt and model settings. Guard events and the actual model history are saved with each captured turn.
+
+These are application boundaries, not a truth detector: a false claim with a valid citation can still pass. The synthetic-canary check covers only literal/base64/hex reconstruction and can miss partial disclosures; real secrets should never enter model context. `rendered_answer_html` is escaped for an HTML text node only, and must actually be used by an appropriate renderer. Production session authentication and frontend integration remain separate work. Live improvement from these safeguards has not yet been measured.

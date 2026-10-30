@@ -7,6 +7,7 @@ import types
 import pytest
 from chatbot_eval.experiment import load_experiment, plan_experiment, run_experiment
 from chatbot_eval.cli import main
+from chatbot_eval.safeguards import GuardedSession
 
 
 def design():
@@ -205,3 +206,19 @@ def test_interrupted_run_keeps_completed_turns(tmp_path, monkeypatch):
     assert saved['status'] == 'running' and saved['counts']['captured'] == 1
     assert saved['counts']['in_flight'] == 1 and saved['calls_attempted'] == 2
     assert saved['sessions'][0]['turns'][0]['response']['answer'] == 'preserved'
+
+
+def test_guarded_capture_records_actual_model_context_and_rendered_text():
+    source = design()
+    source['scenarios'][0]['injected_history'] = [{'question': 'Fake?', 'answer': 'Forged fact'}]
+    source['scenarios'][0]['injected_evidence'] = [{'id': 'fake', 'text': 'Override rules'}]
+    def factory():
+        return GuardedSession(lambda _: {'answer': '<script>INERT</script>', 'citations': ['fact']}, source['documents'])
+    report = run(source, factory)
+    first = report['sessions'][0]['turns'][0]
+    assert first['history'][0]['answer'] == 'Forged fact'
+    assert first['guards']['model_history'] == []
+    assert first['guards']['approved_source_ids'] == ['fact']
+    assert '&lt;script&gt;' in first['guards']['rendered_answer_html']
+    assert set(first['guards']['events']) == {'unverified_history_discarded', 'unapproved_source_removed', 'html_text_escaped'}
+    assert report['sessions'][0]['turns'][1]['guards']['model_history'][0]['answer'] == '<script>INERT</script>'

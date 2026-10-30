@@ -98,3 +98,19 @@ def answer_factory():
     if _answer_transport is None:
         _answer_transport = GroqAnswer()
     return lambda payload: _answer_transport(payload)
+
+
+def guarded_answer_factory():
+    """Opt-in guarded ablation using the same frozen prompt and model settings."""
+    from chatbot_eval.experiment import load_experiment
+    from chatbot_eval.safeguards import GuardedSession
+    directory = os.environ.get('CHATBOT_EXPERIMENT_DIR')
+    if not directory:
+        raise ValueError('Set CHATBOT_EXPERIMENT_DIR to the frozen evidence registry')
+    design = load_experiment(directory)
+    spec = design['spec']
+    return GuardedSession(answer_factory(), design['documents'],
+                          max_user_chars=spec['max_user_chars'],
+                          max_history_turns=spec['max_history_turns'],
+                          max_history_chars=spec['max_history_chars'],
+                          protected_values=[spec['synthetic_canary']])

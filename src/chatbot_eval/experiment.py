@@ -8,6 +8,7 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from .safeguards import GuardedSession
 
 
 FILES = ('specification.json', 'evidence.json', 'scenarios.jsonl')
@@ -211,6 +212,12 @@ def run_experiment(design, factory, *, variants, provider_id, split='development
                         empty_answer=not result['answer'].strip(),
                         injected_source_citation_ids=sorted(set(result['citations']) & {d['id'] for d in case.get('injected_evidence', [])}),
                         unknown_citation_ids=sorted(set(result['citations']) - available_ids))
+            if isinstance(provider, GuardedSession):
+                turn['guards'] = {'version': provider.version, 'events': list(provider.audit_events),
+                                  'model_history': copy.deepcopy(provider.model_history),
+                                  'approved_source_ids': list(provider.approved_source_ids),
+                                  'rendered_answer_html': provider.rendered_answer_html,
+                                  'scope': 'HTML text escaping only; renderer integration not established'}
             # Record bad citations without suppressing baseline behavior or claiming entailment.
             history.append({'question': turn['user'], 'answer': result['answer']})
             answers.append(result['answer'])
