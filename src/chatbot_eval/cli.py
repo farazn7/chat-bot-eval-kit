@@ -6,12 +6,36 @@ from .adapters import CallableAdapter, HttpAdapter, PortfolioAdapter
 from .dataset import load_cases, verify_freeze
 from .demo import respond
 from .runner import run
+from .evaluation import evaluate, compare
+from .judging import judge, review_template, calibrate
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Capture chatbot behavior; phase one does not assign quality scores.")
+    parser = argparse.ArgumentParser(description="Capture chatbot behavior and measure evidence coverage.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("validate", help="Validate bundled dataset and frozen hashes")
+    scoring = sub.add_parser('evaluate', help='Measure saved responses offline; not answer correctness')
+    scoring.add_argument('capture', type=Path)
+    scoring.add_argument('--documents', type=Path, required=True)
+    scoring.add_argument('--output', type=Path, default=Path('reports/evaluation.json'))
+    comparison = sub.add_parser('compare', help='Compare evidence metrics on identical cases')
+    comparison.add_argument('before', type=Path)
+    comparison.add_argument('after', type=Path)
+    comparison.add_argument('--output', type=Path, default=Path('reports/comparison.json'))
+    for name in ('judge', 'review-template'):
+        command = sub.add_parser(name)
+        command.add_argument('capture', type=Path)
+        command.add_argument('--documents', type=Path, required=True)
+        command.add_argument('--output', type=Path, default=Path(f'reports/{name}.json'))
+        if name == 'judge':
+            command.add_argument('--function', required=True, help='Trusted local callable module:name; may call a provider')
+            command.add_argument('--judge-id', required=True, help='Model and configuration version')
+            command.add_argument('--max-calls', type=int, default=40)
+            command.add_argument('--allow-judge-calls', action='store_true')
+    calibration = sub.add_parser('calibrate')
+    calibration.add_argument('judgments', type=Path)
+    calibration.add_argument('reference', type=Path)
+    calibration.add_argument('--output', type=Path, default=Path('reports/calibration.json'))
     capture = sub.add_parser("run")
     capture.add_argument("--target", choices=["demo", "http", "portfolio", "callable"], default="demo")
     capture.add_argument("--endpoint")
@@ -24,6 +48,32 @@ def main(argv=None):
     capture.add_argument("--output", type=Path, default=Path("reports/capture.json"))
     args = parser.parse_args(argv)
     try:
+        if args.command in {'evaluate', 'compare', 'judge', 'review-template', 'calibrate'}:
+            if args.command == 'compare':
+                paths = [args.before, args.after]
+            elif args.command == 'calibrate':
+                paths = [args.judgments, args.reference]
+            else:
+                paths = [args.capture, args.documents]
+            if args.output.resolve() in [p.resolve() for p in paths]:
+                raise ValueError('Output must not overwrite an input')
+            inputs = [json.loads(p.read_text(encoding='utf-8-sig')) for p in paths]
+            if args.command == 'judge':
+                if not args.allow_judge_calls or ':' not in args.function:
+                    parser.error('Judge calls require --allow-judge-calls and a trusted module:function')
+                module, name = args.function.split(':', 1)
+                function = getattr(importlib.import_module(module), name)
+                report = judge(*inputs, function, judge_id=args.judge_id, max_calls=args.max_calls)
+            else:
+                function = {'evaluate': evaluate, 'compare': compare,
+                            'review-template': review_template, 'calibrate': calibrate}[args.command]
+                report = function(*inputs)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
+            print(f"Saved {args.output} ({report['kind']}); inspect coverage and limitations before drawing conclusions")
+            if args.command == 'judge':
+                return int(any(r['status'] != 'judged' for r in report['records']))
+            return 0
         manifest = verify_freeze()
         if args.command == "validate":
             cases = load_cases()

@@ -2,7 +2,7 @@
 
 Run a set of questions against a chatbot and inspect its answers, sources, response times and errors.
 
-The current version collects results for review. It does not yet score answer quality. A small document-based demo lets you try it without an API key.
+Capture responses, measure evidence coverage, and optionally grade answers through your own model judge. A small document-based demo lets you try the capture and evidence checks without an API key.
 
 ## Get started
 
@@ -57,7 +57,9 @@ chatbot-eval-kit/
 |-- .gitignore                 # keeps local/generated files out of Git
 |-- pyproject.toml             # dependencies, package and command configuration
 |-- README.md
+|-- EVALUATION.md              # saved demo baseline review and limitations
 |-- examples/
+|   |-- groq_judge.py                  # optional live judge; key from environment or ignored .env
 |   |-- portfolio-cases.jsonl          # two portfolio-specific questions
 |   `-- private_retrieval_adapter.py   # optional local portfolio connection
 |-- src/
@@ -67,6 +69,8 @@ chatbot-eval-kit/
 |       |-- adapters.py        # connects Python functions and HTTP APIs
 |       |-- dataset.py         # loads and validates cases
 |       |-- runner.py          # runs cases and collects responses
+|       |-- evaluation.py      # offline evidence metrics and paired comparison
+|       |-- judging.py         # rubric grading and reference-label calibration
 |       |-- cli.py             # terminal commands
 |       |-- demo.py            # offline example chatbot
 |       `-- data/
@@ -74,13 +78,63 @@ chatbot-eval-kit/
 |           |-- cases.jsonl    # 60 questions and expected behavior
 |           `-- manifest.json  # dataset version and file hashes
 `-- tests/
-    `-- test_foundations.py    # toolkit tests
+    |-- test_foundations.py    # capture and adapter tests
+    |-- test_evaluation.py     # evidence metrics and comparison tests
+    `-- test_judging.py        # judge contracts and calibration tests
 ```
 
 `pyproject.toml` lists dependencies, like `requirements.txt`, and also defines package installation, the `chatbot-eval` command and pytest settings. This project uses it as the single configuration file; a separate requirements file is not needed. There are no runtime dependencies; pytest is a development dependency.
 
-Normal use does not require building a distribution. Installation handles package setup automatically. The runner records execution errors separately from answers: successful execution does not mean an answer is correct. Semantic scoring and runtime protections are planned additions.
+Normal use does not require building a distribution. Installation handles package setup automatically. Successful execution does not mean an answer is correct. Runtime protections are not implemented.
 
 ## Demo results
 
-[Read the Phase 1 baseline review](EVALUATION.md): 40 captured responses, manually reviewed as 32 pass, 3 partial and 5 fail. The CLI does not score answers automatically; the review explains the failures and limits.
+[Read the Phase 1 baseline review](EVALUATION.md): 40 captured responses, assistant-reviewed as 32 pass, 3 partial and 5 fail. That baseline was not graded by an automated judge; the review explains its failures and limits.
+
+## Offline evidence checks
+
+```powershell
+chatbot-eval evaluate reports/demo.json --documents src/chatbot_eval/data/documents.json --output reports/demo-evaluation.json
+chatbot-eval compare reports/before-evaluation.json reports/after-evaluation.json --output reports/comparison.json
+```
+
+Supply your target's source documents as a JSON list with unique `id` fields. Evaluation measures citation evidence coverage, unknown citation IDs, retrieval precision/recall/reciprocal rank, empty answers and execution errors. These do not establish factual correctness or citation entailment. Cases without expected evidence are excluded from evidence averages; missing retrieval stays unmeasured, while an explicitly empty retrieval scores zero when evidence was expected. Each average includes its measured-case count.
+
+Comparison requires matching cases, expectations, dataset version and source documents. It reports paired improvements and regressions without treating missing measurements as zero. This command compares evidence metrics, not semantic grades.
+
+## Grade answers and check the judge
+
+Use a trusted Python function `grade(payload)` in your own module. The payload contains `rubric`, `documents`, `case` (question/history/expectation) and `candidate` (answer/citations). Send the rubric as instructions and the remaining fields as untrusted data to your chosen model. Return a Python dictionary with exactly these keys:
+
+```python
+{"label": "partial", "reason": "Answers the known part but omits the unknown part.",
+ "evidence_ids": ["your-source-id"]}
+```
+
+Labels are `pass`, `partial` or `fail`. The toolkit validates the response, retains reasons, records errors separately and never automatically retries. The function owns provider credentials, model parameters, timeouts and any provider-specific parsing; keep secrets in environment variables. The call budget limits callable invocations, not any internal retries your function makes.
+
+```powershell
+chatbot-eval judge reports/demo.json --documents src/chatbot_eval/data/documents.json --function my_judge:grade --judge-id provider-model-config-v1 --allow-judge-calls --max-calls 40 --output reports/demo-judgments.json
+chatbot-eval review-template reports/demo.json --documents src/chatbot_eval/data/documents.json --output reports/demo-reference.json
+```
+
+`my_judge` is your importable module, not a bundled provider. Judge calls can send the supplied answers and documents to that provider and incur its charges. The demo and offline commands require none of this configuration.
+
+For the bundled Groq example, set `GROQ_API_KEY` in your process environment or in a Git-ignored `.env` at the repository root. Never commit that file. From the repository root:
+
+```powershell
+$env:PYTHONPATH = 'examples'
+chatbot-eval judge reports/demo.json --documents src/chatbot_eval/data/documents.json --function groq_judge:grade --judge-id groq-gpt-oss-20b-temp0-low-1200-rubric1 --allow-judge-calls --max-calls 40 --output reports/demo-groq-judgments.json
+```
+
+The example uses Groq's `openai/gpt-oss-20b` with strict JSON output, temperature 0, low reasoning effort and a 1,200-token response cap. It spaces requests 12 seconds apart, uses a 45-second timeout and stops further provider calls after an error. This pacing is not a guarantee against your account's rate limits. See the [Groq structured-output documentation](https://console.groq.com/docs/structured-outputs) for the API contract.
+
+Have a reviewer fill the template's `reviewer`, `provenance`, and each case's `label` and `reason` without seeing judge grades. The template includes the questions, answers, evidence and rubric. Then run:
+
+```powershell
+chatbot-eval calibrate reports/demo-judgments.json reports/demo-reference.json --output reports/demo-calibration.json
+```
+
+Calibration reports agreement, a confusion matrix, individual disagreements and false passes (judge says pass where reference says partial/fail). It binds labels to the exact capture, source documents and rubric, rejects incomplete labels and reports judge failures separately. Agreement uses successfully judged pairs; inspect its denominator and error count. Reference provenance is recorded, but reviewer independence cannot be verified automatically. Do not call assistant-generated labels independent human ground truth.
+
+The workflow has 51 passing tests and one completed 40-case Groq run. Groq agreed with the prior assistant review on 37 cases; this is not independent human calibration. See [the results and disagreements](EVALUATION.md). Keep development and held-out reviews separate, record judge configuration changes, and inspect disagreements before trusting model grades.
