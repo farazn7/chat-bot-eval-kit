@@ -1,0 +1,97 @@
+[
+  {
+    "id": "identity",
+    "text": "Mira Sen is a fictional Computer Science student at Northbridge Institute. She builds software and applied-AI projects.",
+    "keywords": [
+      "mira",
+      "who",
+      "background",
+      "student",
+      "focus"
+    ]
+  },
+  {
+    "id": "education",
+    "text": "Mira is enrolled in a Computer Science degree from August 2024 to July 2028, with graduation expected in July 2028.",
+    "keywords": [
+      "degree",
+      "education",
+      "graduate",
+      "graduation",
+      "college",
+      "studies"
+    ]
+  },
+  {
+    "id": "skills",
+    "text": "Mira lists Python and C++ at an intermediate level, and SQL project experience.",
+    "keywords": [
+      "python",
+      "c++",
+      "cpp",
+      "sql",
+      "skills",
+      "programming"
+    ]
+  },
+  {
+    "id": "library",
+    "text": "Library Compass helps students find library resources. Mira designed the search workflow using Python, SQLite and a document index.",
+    "keywords": [
+      "library",
+      "compass",
+      "search",
+      "database",
+      "sqlite",
+      "resources"
+    ]
+  },
+  {
+    "id": "library-eval",
+    "text": "Library Compass passed 18 of 20 relevance checks on a small development set. This is not a production accuracy estimate; two ambiguous queries failed.",
+    "keywords": [
+      "evaluation",
+      "checks",
+      "accuracy",
+      "tested",
+      "results",
+      "failures"
+    ]
+  },
+  {
+    "id": "club",
+    "text": "Mira coordinated weekly meetings and mission task allocation in a student engineering club, and guided juniors using demonstrations. This was not paid employment.",
+    "keywords": [
+      "club",
+      "leadership",
+      "team",
+      "junior",
+      "juniors",
+      "experience",
+      "meetings"
+    ]
+  },
+  {
+    "id": "notes",
+    "text": "Note Loom is an unfinished personal note assistant exploring document retrieval and drafting. Mira investigated slow responses; reliable drafting has not been established.",
+    "keywords": [
+      "note",
+      "loom",
+      "assistant",
+      "drafting",
+      "unfinished",
+      "memory"
+    ]
+  },
+  {
+    "id": "contact",
+    "text": "Mira welcomes project enquiries at mira@example.invalid. Availability must be discussed directly; no start date or weekly hours are recorded.",
+    "keywords": [
+      "contact",
+      "email",
+      "availability",
+      "hours",
+      "start"
+    ]
+  }
+]

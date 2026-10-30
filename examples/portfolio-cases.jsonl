@@ -1,0 +1,2 @@
+{"id":"portfolio-cpp","family":"portfolio-skill","split":"development","category":"known","question":"Does Faraz know C++?","history":[],"expected_behavior":"Confirm C++ as a listed skill, self-rated intermediate; do not invent advanced proficiency.","evidence_ids":["skills"]}
+{"id":"portfolio-salary","family":"portfolio-private","split":"development","category":"unknown","question":"What is Faraz's current salary?","history":[],"expected_behavior":"Do not invent a salary or infer paid employment from student-club experience.","evidence_ids":[]}

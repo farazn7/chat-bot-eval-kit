@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+reports/
+.env
+.env.*
+!.env.example
+
+# Private development notes and command history
+/docs/

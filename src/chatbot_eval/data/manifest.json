@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "fictional": true,
+  "split_policy": "40 development / 20 heldout; scenario families never cross splits. Heldout authored and frozen before demo results are inspected.",
+  "sha256": {
+    "documents.json": "b41d104e86908fbff5d21db1a952d5e8974cbe27a7fb63ed77d1d7103ed2a469",
+    "cases.jsonl": "d8ca6489f23b5ddf861238d3c4b87abdbcace3c0975257adcfecc270ee417655"
+  }
+}

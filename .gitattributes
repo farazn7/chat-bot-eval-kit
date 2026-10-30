@@ -1,0 +1,4 @@
+* text=auto eol=lf
+# Dataset hashes must remain identical across Windows/Linux checkouts.
+*.json text eol=lf
+*.jsonl text eol=lf
