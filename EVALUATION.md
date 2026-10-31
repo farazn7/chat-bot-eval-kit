@@ -94,3 +94,12 @@ Agreement was **37/40 (92.5%)**. Of eight reference non-passes, two were graded 
 The judge did identify the known-information refusals and missed follow-up found earlier. It should assist review, not replace it. Preserve this run and rubric; test any rubric/model revision separately and inspect both regressions and improvements. Independent human review is needed before stronger calibration claims.
 
 Local ignored artifacts: `reports/demo-groq-judgments.json` contains every grade and reason; `reports/demo-groq-agreement.json` contains the confusion matrix and disagreements; `reports/demo-assistant-reference.json` records the original assistant reference and its provenance. The initial provider attempt before credential replacement returned HTTP 403 and produced no grades. The completed run supersedes that failed attempt; its success does not identify the original failure's cause.
+
+
+## Optional safeguards: validation status
+
+The reusable safeguards now have source and history boundaries, response/citation validation, safe HTML text output, and an opt-in evidence verifier. Verification allows one correction followed by a mandatory recheck. The current suite has 96 passing tests.
+
+Private development experiments and their personal evidence are intentionally excluded from this repository. They do not establish production readiness. In particular, a same-model verifier initially accepted a misleading authority claim; a subsequent targeted regression corrected it after verifier instructions were revised. Broad effectiveness of that revised checker remains unmeasured. Automated judge scores also require review: internally inconsistent labels and misread refusals were observed.
+
+The fictional demo results above remain separate from those private experiments. Neither passing implementation tests nor valid citation IDs proves factual correctness.

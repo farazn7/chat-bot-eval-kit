@@ -72,6 +72,7 @@ chatbot-eval-kit/
 |       |-- evaluation.py      # offline evidence metrics and paired comparison
 |       |-- judging.py         # rubric grading and reference-label calibration
 |       |-- experiment.py      # frozen-design, real multi-turn capture and session isolation
+|       |-- safeguards.py      # source/history checks and optional evidence verification
 |       |-- cli.py             # terminal commands
 |       |-- demo.py            # offline example chatbot
 |       `-- data/
@@ -82,12 +83,13 @@ chatbot-eval-kit/
     |-- test_foundations.py    # capture and adapter tests
     |-- test_evaluation.py     # evidence metrics and comparison tests
     |-- test_judging.py        # judge contracts and provider tests
-    `-- test_experiment.py     # conversations, budgets, isolation and interruption tests
+    |-- test_experiment.py     # conversations, budgets, isolation and interruption tests
+    `-- test_safeguards.py     # validation, bounded repair and safe text handling
 ```
 
 `pyproject.toml` lists dependencies, like `requirements.txt`, and also defines package installation, the `chatbot-eval` command and pytest settings. This project uses it as the single configuration file; a separate requirements file is not needed. There are no runtime dependencies; pytest is a development dependency.
 
-Normal use does not require building a distribution. Installation handles package setup automatically. Successful execution does not mean an answer is correct. Runtime protections are not implemented.
+Normal use does not require building a distribution. Installation handles package setup automatically. Successful execution does not mean an answer is correct. Optional safeguards are described below; they do not establish production readiness.
 
 ## Demo results
 
@@ -139,7 +141,7 @@ chatbot-eval calibrate reports/demo-judgments.json reports/demo-reference.json -
 
 Calibration reports agreement, a confusion matrix, individual disagreements and false passes (judge says pass where reference says partial/fail). It binds labels to the exact capture, source documents and rubric, rejects incomplete labels and reports judge failures separately. Agreement uses successfully judged pairs; inspect its denominator and error count. Reference provenance is recorded, but reviewer independence cannot be verified automatically. Do not call assistant-generated labels independent human ground truth.
 
-The toolkit has 86 passing tests and one completed 40-case demo judge run. Groq agreed with the prior assistant review on 37 cases; this is not independent human calibration. See [the results and disagreements](EVALUATION.md). Keep development and held-out reviews separate, record judge configuration changes, and inspect disagreements before trusting model grades.
+The toolkit has 96 passing tests and one completed 40-case demo judge run. Groq agreed with the prior assistant review on 37 cases; this is not independent human calibration. See [the results and disagreements](EVALUATION.md). Keep development and held-out reviews separate, record judge configuration changes, and inspect disagreements before trusting model grades.
 
 ## Multi-turn experiments
 
@@ -164,7 +166,7 @@ The factory returns a fresh stateless callable accepting `system`, `question`, `
 
 Execution requires a new output file and checkpoints every turn. Provider failure stops further calls; incomplete sessions remain visible. If interrupted, an `in_flight` call may have incurred usage even though its answer was not captured. There is no automatic resume or retry: preserve that report and account for it before starting a separately named run. Histories exceeding limits stop rather than silently truncate. Held-out runs require `--split heldout --include-heldout`.
 
-Unknown citations, injected-source citations and empty answers are recorded, not repaired or counted as quality passes. Synthetic-canary checks detect literal, base64 and hex forms, including concatenated replies; absence of a match does not prove non-disclosure. Semantic correctness, helpfulness and attack success still require separate review. An optional GuardedSession now checks source provenance, owns conversation history, validates output and citation IDs, and provides HTML text escaping. It does not verify semantic truth, authenticate web sessions, integrate a browser renderer, perform load testing or run adaptive red teaming. Its experiment reports are not inputs to the single-turn `evaluate`/`judge` commands without an explicit conversion and matching evaluation protocol.
+Unknown citations, injected-source citations and empty answers are recorded, not repaired or counted as quality passes. Synthetic-canary checks detect literal, base64 and hex forms, including concatenated replies; absence of a match does not prove non-disclosure. Semantic correctness, helpfulness and attack success still require separate review. An optional GuardedSession now checks source provenance, owns conversation history, validates output and citation IDs, and provides HTML text escaping. Without the optional verifier it does not check factual support. It does not authenticate web sessions, integrate a browser renderer, perform load testing or run adaptive red teaming. Its experiment reports are not inputs to the single-turn `evaluate`/`judge` commands without an explicit conversion and matching evaluation protocol.
 
 
 ### Optional application safeguards
@@ -173,4 +175,13 @@ Unknown citations, injected-source citations and empty answers are recorded, not
 
 For the Groq experiment, set `CHATBOT_EXPERIMENT_DIR` to the frozen design folder and use `--function groq_judge:guarded_answer_factory`. Compare this against `groq_judge:answer_factory` with the **same** balanced prompt and model settings. Guard events and the actual model history are saved with each captured turn.
 
-These are application boundaries, not a truth detector: a false claim with a valid citation can still pass. The synthetic-canary check covers only literal/base64/hex reconstruction and can miss partial disclosures; real secrets should never enter model context. `rendered_answer_html` is escaped for an HTML text node only, and must actually be used by an appropriate renderer. Production session authentication and frontend integration remain separate work. Live improvement from these safeguards has not yet been measured.
+These are application boundaries, not a truth detector: a false claim with a valid citation can still pass. The synthetic-canary check covers only literal/base64/hex reconstruction and can miss partial disclosures; real secrets should never enter model context. `rendered_answer_html` is escaped for an HTML text node only, and must actually be used by an appropriate renderer. Production session authentication and frontend integration remain separate work. A private development comparison did not establish an overall improvement from these boundary checks; do not treat them as a hallucination fix.
+
+
+### Optional evidence verification
+
+`GuardedSession(..., verifier=callable)` checks a valid draft before delivery. The callable receives the sanitized request and candidate response and returns `{"supported": true, "reason": "..."}`. Unsupported drafts get at most one correction, followed by another check. Failed checks or unavailable verification return a safe fallback; malformed responses and invalid citations still fail validation. Only the delivered answer enters session history. Verification candidates and verdicts are recorded for audit.
+
+The Groq example exposes `grounded_answer_factory` as a separate opt-in condition. It shares transport pacing with generation and uses the same model in a fresh verifier request. This is not independent verification or a guarantee of truth. Allow **up to four API calls per turn** (draft, check, correction, recheck); the experiment runner's call limit counts turns, not these internal calls. Keep a separate provider-call budget and assess false rejections, latency and cost before deployment. Existing frozen captures are not changed by enabling this option.
+
+The grounded Groq path escapes protocol-looking delimiters within JSON data without deleting user text. This reduces accidental interpretation of embedded role markers; it is not a universal prompt-injection defense. The verifier explicitly rejects attributing user assertions to system authority.

@@ -214,6 +214,7 @@ def run_experiment(design, factory, *, variants, provider_id, split='development
                         unknown_citation_ids=sorted(set(result['citations']) - available_ids))
             if isinstance(provider, GuardedSession):
                 turn['guards'] = {'version': provider.version, 'events': list(provider.audit_events),
+                                   'verification': copy.deepcopy(provider.verification),
                                   'model_history': copy.deepcopy(provider.model_history),
                                   'approved_source_ids': list(provider.approved_source_ids),
                                   'rendered_answer_html': provider.rendered_answer_html,
